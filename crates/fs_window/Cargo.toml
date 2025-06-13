@@ -1,0 +1,18 @@
+[package]
+name = "fs_window"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4.27"
+glm = "0.2.3"
+
+[dependencies.windows]
+version = "0.61.1"
+features = [
+    "Win32",
+    "Win32_UI", 
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System", 
+    "Win32_System_LibraryLoader",
+    "Win32_Graphics_Gdi"]
