@@ -3,7 +3,7 @@ use crate::*;
 use fs_window::Window;
 use log::*;
 use std::cmp::PartialEq;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::ptr::null_mut;
 use windows::Win32::Foundation::{HANDLE, RECT};
@@ -12,10 +12,7 @@ use windows::Win32::Graphics::Direct3D::{
     D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob,
 };
 use windows::Win32::Graphics::Direct3D12::*;
-use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_UNORM,
-    DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
-};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC, DXGI_FORMAT_R32_UINT};
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::Threading::{CreateEventA, INFINITE, WaitForSingleObject};
 use windows::core::{Interface, PCSTR};
@@ -152,6 +149,7 @@ struct Texture {
 struct Buffer {
     resource_handle: ResourceHandle,
     cbv_srv_uav_descriptor: Descriptor,
+    size: u32,
 }
 
 pub struct RenderContextDX {
@@ -411,9 +409,13 @@ impl RenderContext for RenderContextDX {
             "Created buffer with {} element(s) and stride {}",
             buffer_create_info.elements, buffer_create_info.stride
         );
+        
+        let size = buffer_create_info.stride * buffer_create_info.elements;
+        
         let buffer = Buffer {
             resource_handle,
             cbv_srv_uav_descriptor,
+            size,
         };
         Ok(add_buffer(
             buffer,
@@ -440,22 +442,25 @@ impl RenderContext for RenderContextDX {
         todo!()
     }
 
-    fn write_buffer(&mut self, buffer_id: BufferHandle, data: *const c_void, len: usize) -> Result<(), Error>
-    {
+    fn write_buffer(
+        &mut self,
+        buffer_id: BufferHandle,
+        data: *const c_void,
+        len: usize,
+    ) -> Result<(), Error> {
         let buffer = &self.buffers[buffer_id.0 as usize];
         let resource = &self.resources[buffer.resource_handle.0 as usize];
         unsafe {
             let mut data_ptr = null_mut();
-            resource.resource.Map(0, None, Some(&mut data_ptr)).map_err(|_| Error::MapBuffer)?;
+            resource
+                .resource
+                .Map(0, None, Some(&mut data_ptr))
+                .map_err(|_| Error::MapBuffer)?;
 
             if !data_ptr.is_null() {
-                std::ptr::copy_nonoverlapping(
-                    data,
-                    data_ptr,
-                    len,
-                );
+                std::ptr::copy_nonoverlapping(data, data_ptr, len);
             }
-            
+
             resource.resource.Unmap(0, None);
         }
         Ok(())
@@ -556,6 +561,28 @@ impl RenderContext for RenderContextDX {
         }
     }
 
+    fn clear_depth_stencil(
+        &mut self,
+        command_handle: CommandHandle,
+        depth_stencil_handle: TextureHandle,
+        depth: f32,
+        stencil: u8,
+    ) {
+        let command = self.commands[command_handle.0 as usize]
+            .command_list
+            .clone();
+        let depth_stencil = &self.textures[depth_stencil_handle.0 as usize];
+        let descriptor = depth_stencil.dsv_descriptor.unwrap().cpu.clone();
+        self.transition_resource(
+            command_handle,
+            depth_stencil.resource_handle,
+            ResourceState::DepthStencil,
+        );
+        unsafe {
+            command.ClearDepthStencilView(descriptor, D3D12_CLEAR_FLAG_DEPTH, depth, stencil, None);
+        }
+    }
+
     fn transition_resource(
         &mut self,
         command_handle: CommandHandle,
@@ -564,19 +591,19 @@ impl RenderContext for RenderContextDX {
     ) {
         let command = &self.commands[command_handle.0 as usize].command_list;
         let resource = &mut self.resources[resource_handle.0 as usize];
-        let barrier = D3D12_RESOURCE_BARRIER {
-            Type: Default::default(),
-            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
-            Anonymous: D3D12_RESOURCE_BARRIER_0 {
-                Transition: ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
-                    pResource: ManuallyDrop::new(Some(resource.resource.clone())),
-                    Subresource: D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-                    StateBefore: resource.state.into(),
-                    StateAfter: new_state.into(),
-                }),
-            },
-        };
         if resource.state != new_state {
+            let barrier = D3D12_RESOURCE_BARRIER {
+                Type: Default::default(),
+                Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+                Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                    Transition: ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                        pResource: ManuallyDrop::new(Some(resource.resource.clone())),
+                        Subresource: D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                        StateBefore: resource.state.into(),
+                        StateAfter: new_state.into(),
+                    }),
+                },
+            };
             unsafe {
                 command.ResourceBarrier(&[barrier]);
             }
@@ -590,7 +617,9 @@ impl RenderContext for RenderContextDX {
         render_target_handles: Option<Vec<TextureHandle>>,
         depth_stencil_handle: Option<TextureHandle>,
     ) {
-        let command = self.commands[command_handle.0 as usize].command_list.clone();
+        let command = self.commands[command_handle.0 as usize]
+            .command_list
+            .clone();
 
         let mut rtvs: [MaybeUninit<D3D12_CPU_DESCRIPTOR_HANDLE>; 8] =
             unsafe { MaybeUninit::uninit().assume_init() };
@@ -599,10 +628,10 @@ impl RenderContext for RenderContextDX {
         let render_targets = if let Some(handles) = &render_target_handles {
             for (i, handle) in handles.iter().enumerate() {
                 debug_assert!(i < rtvs.len());
-                
+
                 let resource = self.textures[handle.0 as usize].resource_handle;
                 self.transition_resource(command_handle, resource, ResourceState::RenderTarget);
-                
+
                 rtvs[i].write(
                     self.textures[handle.0 as usize]
                         .rtv_descriptor
@@ -617,13 +646,16 @@ impl RenderContext for RenderContextDX {
             None
         };
 
+        let descriptor: D3D12_CPU_DESCRIPTOR_HANDLE;
         let depth_stencil = if depth_stencil_handle.is_some() {
-            let depth_stencil = self.textures[depth_stencil_handle.unwrap().0 as usize]
-                .dsv_descriptor
-                .unwrap()
-                .cpu
-                .clone();
-            Some([depth_stencil].as_ptr())
+            let depth_stencil = &self.textures[depth_stencil_handle.unwrap().0 as usize];
+            descriptor = depth_stencil.dsv_descriptor.unwrap().cpu.clone();
+            self.transition_resource(
+                command_handle,
+                depth_stencil.resource_handle,
+                ResourceState::DepthStencil,
+            );
+            Some(&descriptor as *const D3D12_CPU_DESCRIPTOR_HANDLE)
         } else {
             None
         };
@@ -638,6 +670,30 @@ impl RenderContext for RenderContextDX {
         let shader = &self.shaders[shader_handle.0 as usize];
         unsafe {
             command.SetPipelineState(&shader.pipeline);
+        }
+    }
+
+    fn bind_index_buffer(&mut self, command_handle: CommandHandle, buffer_handle: BufferHandle, offset: u64) {
+        let command = &self.commands[command_handle.0 as usize].command_list;
+        let buffer = &self.buffers[buffer_handle.0 as usize];
+        let resource = &self.resources[buffer.resource_handle.0 as usize];
+        unsafe {
+            let view = D3D12_INDEX_BUFFER_VIEW{
+                BufferLocation: resource.resource.GetGPUVirtualAddress() + offset,
+                SizeInBytes: buffer.size,
+                Format: DXGI_FORMAT_R32_UINT,
+            };
+            let ptr = Some(&view as *const _);
+            command.IASetIndexBuffer(ptr);
+        }
+    }
+
+    fn bind_constant_buffer(&mut self, command_handle: CommandHandle, buffer_handle: BufferHandle, index: u32) {
+        let command = &self.commands[command_handle.0 as usize].command_list;
+        let buffer = &self.buffers[buffer_handle.0 as usize];
+        let resource = &self.resources[buffer.resource_handle.0 as usize];
+        unsafe {
+            command.SetGraphicsRootConstantBufferView(index, resource.resource.GetGPUVirtualAddress());
         }
     }
 
@@ -675,7 +731,7 @@ impl RenderContext for RenderContextDX {
             command.SetGraphicsRoot32BitConstants(0, count, data, 0);
         }
     }
-    
+
     fn set_primitive_topology(
         &mut self,
         command_handle: CommandHandle,
@@ -703,6 +759,13 @@ impl RenderContext for RenderContextDX {
         let command = &self.commands[command_handle.0 as usize].command_list;
         unsafe {
             command.DrawInstanced(vertex_count, instance_count, first_vertex, first_instance);
+        }
+    }
+
+    fn draw_indexed(&mut self, command_handle: CommandHandle, index_count: u32, instance_count: u32, first_index: u32, vertex_offset: i32, first_instance: u32) {
+        let command = &self.commands[command_handle.0 as usize].command_list;
+        unsafe {
+            command.DrawIndexedInstanced(index_count, instance_count, first_index, vertex_offset, first_instance);
         }
     }
 
@@ -1646,6 +1709,17 @@ fn create_graphics_pipeline(
             ConservativeRaster: D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
         };
 
+        let depth_stencil_state = D3D12_DEPTH_STENCIL_DESC {
+            DepthEnable: true.into(),
+            DepthWriteMask: D3D12_DEPTH_WRITE_MASK_ALL,
+            DepthFunc: D3D12_COMPARISON_FUNC_LESS,
+            StencilEnable: false.into(),
+            StencilReadMask: 0,
+            StencilWriteMask: 0,
+            FrontFace: Default::default(),
+            BackFace: Default::default(),
+        };
+
         let desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
             pRootSignature: ManuallyDrop::new(Some(root_sig.clone())),
             VS: vs,
@@ -1657,7 +1731,7 @@ fn create_graphics_pipeline(
             BlendState: blend_state,
             SampleMask: D3D12_DEFAULT_SAMPLE_MASK,
             RasterizerState: rasterizer_state,
-            DepthStencilState: Default::default(),
+            DepthStencilState: depth_stencil_state,
             InputLayout: Default::default(),
             IBStripCutValue: Default::default(),
             PrimitiveTopologyType: shader_create_info.primitive_topology.clone().into(),

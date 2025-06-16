@@ -1,0 +1,10 @@
+[package]
+name = "fs_engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fs_window = { path = "../fs_window" }
+fs_renderer = { path = "../fs_renderer" }
+fs_resources = { path = "../fs_resources" }
+env_logger = "0.11.8"

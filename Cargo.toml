@@ -5,14 +5,22 @@ edition = "2024"
 
 [workspace]
 members = [
+    ".",
     "crates/fs_window",
     "crates/fs_renderer",
     "crates/fs_handles",
-    "."
-]
+    "crates/fs_gltf", 
+    "crates/fs_resources", 
+    "crates/fs_engine"]
 
-[dependencies]
-fs_window = { path = "crates/fs_window" }
-fs_renderer = { path = "crates/fs_renderer" }
-env_logger = "0.11.8"
-log = "0.4.27"
+[dependencies.fs_engine]
+path = "crates/fs_engine"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+
+

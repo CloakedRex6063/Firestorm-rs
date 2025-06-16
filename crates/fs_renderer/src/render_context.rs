@@ -1,5 +1,5 @@
-use std::ffi::c_void;
 use crate::*;
+use std::ffi::c_void;
 
 pub struct FrameData {
     pub command_id: CommandHandle,
@@ -34,7 +34,12 @@ pub trait RenderContext {
     fn destroy_texture(&mut self, texture_id: TextureHandle);
     fn destroy_buffer(&mut self, buffer_id: BufferHandle);
 
-    fn write_buffer(&mut self, buffer_id: BufferHandle, data: *const c_void, len: usize) -> Result<(), Error>;
+    fn write_buffer(
+        &mut self,
+        buffer_id: BufferHandle,
+        data: *const c_void,
+        len: usize,
+    ) -> Result<(), Error>;
     fn get_gpu_address(&mut self, buffer_id: BufferHandle) -> u32;
 
     fn begin_command(&mut self, command_id: CommandHandle);
@@ -46,6 +51,13 @@ pub trait RenderContext {
         command_handle: CommandHandle,
         texture_handle: TextureHandle,
         color: [f32; 4],
+    );
+    fn clear_depth_stencil(
+        &mut self,
+        command_handle: CommandHandle,
+        depth_stencil_handle: TextureHandle,
+        depth: f32,
+        stencil: u8,
     );
     fn transition_resource(
         &mut self,
@@ -60,6 +72,18 @@ pub trait RenderContext {
         depth_stencil_handle: Option<TextureHandle>,
     );
     fn bind_shader(&mut self, command_handle: CommandHandle, shader_handle: ShaderHandle);
+    fn bind_index_buffer(
+        &mut self,
+        command_handle: CommandHandle,
+        buffer_handle: BufferHandle,
+        offset: u64,
+    );
+    fn bind_constant_buffer(
+        &mut self,
+        command_handle: CommandHandle,
+        buffer_handle: BufferHandle,
+        index: u32
+    );
     fn set_viewport(&mut self, command_handle: CommandHandle, viewport: Viewport);
     fn set_scissor(&mut self, command_handle: CommandHandle, scissor: Scissor);
     fn push_constant(&mut self, command_id: CommandHandle, data: *const c_void, count: u32);
@@ -76,6 +100,16 @@ pub trait RenderContext {
         first_vertex: u32,
         first_instance: u32,
     );
+    fn draw_indexed(
+        &mut self, 
+        command_handle: CommandHandle, 
+        index_count: u32, 
+        instance_count: u32, 
+        first_index: u32, 
+        vertex_offset: i32, 
+        first_instance: u32
+    );
+    
     fn copy_to_swapchain(
         &mut self,
         command_handle: CommandHandle,

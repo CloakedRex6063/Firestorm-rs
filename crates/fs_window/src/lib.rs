@@ -16,6 +16,7 @@ pub struct Window {
     window_title: String,
     is_running: bool,
     size: Vec2,
+    registered: bool,
 }
 
 impl Window {
@@ -65,17 +66,23 @@ impl Window {
             window_title,
             is_running,
             size: Vec2::new(1280.0, 720.0),
+            registered: false,       
         }
     }
 
-    pub fn register_window(&mut self) {
+    fn register_window(&mut self) {
         unsafe {
             SetWindowLongPtrA(self.hwnd, GWLP_USERDATA, self as *mut _ as _);
         }
     }
 
-    pub fn poll_events(&self) {
+    pub fn poll_events(&mut self) {
         unsafe {
+            if !self.registered
+            {
+                self.register_window();
+                self.registered = true;           
+            }
             let mut msg = MSG::default();
             while PeekMessageA(&mut msg, Some(self.hwnd), 0, 0, PM_REMOVE).as_bool() {
                 let _ = TranslateMessage(&msg);
@@ -97,7 +104,6 @@ impl Window {
     }
 
     pub fn close_window(&mut self) {
-        info!("Window closed: {}", self.window_title);
         self.is_running = false;
     }
 

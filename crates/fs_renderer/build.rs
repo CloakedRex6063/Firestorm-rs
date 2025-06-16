@@ -77,12 +77,15 @@ fn gen_shaders(shader_path: &PathBuf, output_path: &PathBuf, dxc_path: &PathBuf)
 
         let status = Command::new(&dxc_path)
             .args(&[
-                "-T", target,
-                "-E", "main",
-                "-Fo", output_file.to_str().unwrap(),
+                "-T",
+                target,
+                "-E",
+                "main",
+                "-Fo",
+                output_file.to_str().unwrap(),
                 "-Zi",
                 "-Od",
-                "-Qembed_debug",  
+                "-Qembed_debug",
                 file.to_str().unwrap(),
             ])
             .status()

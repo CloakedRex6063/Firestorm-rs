@@ -1,4 +1,6 @@
-use crate::{BufferHandle, Format, RenderContext, Renderer, ShaderHandle, TextureHandle};
+use crate::{
+    BufferHandle, Format, PrimitiveTopology, RenderContext, Renderer, ShaderHandle, TextureHandle,
+};
 
 pub enum RenderPassError {
     None,
@@ -13,8 +15,10 @@ pub enum RenderPassInput {
     Texture(TextureHandle),
 }
 
+type RenderPassFn = fn(&mut dyn RenderContext, &RenderPass, &[Model]);
+
 pub struct RenderPass {
-    pub pass: fn(&mut dyn RenderContext, &RenderPass),
+    pub pass: RenderPassFn,
     pub shader: ShaderHandle,
     pub inputs: Vec<RenderPassInput>,
     pub outputs: Vec<TextureHandle>,
@@ -23,7 +27,7 @@ pub struct RenderPass {
 
 pub struct RenderPassBuilder<'a> {
     renderer: &'a Renderer,
-    pass: Option<fn(&mut dyn RenderContext, &RenderPass)>,
+    pass: Option<RenderPassFn>,
     shader: Option<ShaderHandle>,
     inputs: Vec<RenderPassInput>,
     outputs: Vec<TextureHandle>,
@@ -61,7 +65,7 @@ impl<'a> RenderPassBuilder<'a> {
         self
     }
 
-    pub fn add_pass(&mut self, pass: fn(&mut dyn RenderContext, &RenderPass)) -> &mut Self {
+    pub fn add_pass(&mut self, pass: fn(&mut dyn RenderContext, &RenderPass, &[Model])) -> &mut Self {
         self.pass = Some(pass);
         self
     }
@@ -105,4 +109,30 @@ impl Default for Vertex {
             tangent: [0.0, 0.0, 0.0, 0.0],
         }
     }
+}
+
+#[repr(C)]
+pub struct Material {
+    pub albedo: [f32; 4],
+    pub albedo_texture: Option<TextureHandle>,
+    pub emissive: [f32; 3],
+    pub emissive_texture: Option<TextureHandle>,
+}
+
+pub struct Mesh {
+    pub index_start: u32,
+    pub index_count: u32,
+    pub base_vertex: i32,
+    pub material_index: Option<u32>,
+    pub primitive_topology: PrimitiveTopology,
+}
+
+pub struct Model {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+    pub vertex_buffer: BufferHandle,
+    pub index_buffer: BufferHandle,
+    pub meshes: Vec<Mesh>,
+    pub materials: Vec<Material>,
+    pub textures: Vec<TextureHandle>,
 }

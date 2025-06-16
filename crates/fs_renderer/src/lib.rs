@@ -1,8 +1,6 @@
-use std::mem;
-use std::ffi::c_void;
 use crate::dx_render::RenderContextDX;
 pub use crate::render_context::RenderContext;
-use crate::render_structs::{RenderPass, Vertex};
+pub use crate::render_structs::*;
 use enumflags2::{BitFlags, bitflags};
 use fs_handles::Handle;
 use fs_window::Window;
@@ -173,13 +171,17 @@ pub enum Error {
     CreateRootSignature,
     CreateDescriptorHeap,
     CreateRenderPass,
-    MapBuffer
+    MapBuffer,
 }
 
-#[macro_export] macro_rules! get_ptr_and_size {
+#[macro_export]
+macro_rules! get_ptr_and_size {
     ($val:expr) => {{
         let ref_val = &$val;
-        (ref_val.as_ptr() as *const c_void, (ref_val.len() * mem::size_of_val(&ref_val[0])) as usize)
+        (
+            ref_val.as_ptr() as *const c_void,
+            (ref_val.len() * mem::size_of_val(&ref_val[0])) as usize,
+        )
     }};
 }
 
@@ -243,29 +245,37 @@ impl Renderer {
     }
 
     fn add_default_render_passes(&mut self) -> Result<(), Error> {
-        let vertex_buffer_info = BufferCreateInfo {
-            stride: size_of::<Vertex>() as u32,
-            elements: 3,
+        // let vertex_buffer_info = BufferCreateInfo {
+        //     stride: size_of::<Vertex>() as u32,
+        //     elements: 3,
+        // };
+        // let vertex_buffer = self.render_context.create_buffer(&vertex_buffer_info)?;
+        // 
+        // let vertex_data: [Vertex; 3] = [
+        //     Vertex {
+        //         position: [-0.5f32, -0.5f32, 0.0f32],
+        //         ..Default::default()
+        //     },
+        //     Vertex {
+        //         position: [0.5f32, -0.5f32, 0.0f32],
+        //         ..Default::default()
+        //     },
+        //     Vertex {
+        //         position: [0f32, 0.5f32, 0.0f32],
+        //         ..Default::default()
+        //     },
+        // ];
+        // let (ptr, len) = get_ptr_and_size!(vertex_data);
+        // self.render_context.write_buffer(vertex_buffer, ptr, len)?;
+        
+        let constant_create_info = BufferCreateInfo{
+            stride: 65536,
+            elements: 1,
         };
-        let vertex_buffer = self.render_context.create_buffer(&vertex_buffer_info)?;
-
-        let vertex_data: [Vertex; 3] = [
-            Vertex {
-                position: [-0.5f32, -0.5f32, 0.0f32],
-                ..Default::default()
-            },
-            Vertex {
-                position: [0.5f32, -0.5f32, 0.0f32],
-                ..Default::default()
-            },
-            Vertex {
-                position: [0f32, 0.5f32, 0.0f32],
-                ..Default::default()
-            },
-        ];
-        let (ptr, len) = get_ptr_and_size!(vertex_data);
-        self.render_context.write_buffer(vertex_buffer, ptr, len)?;
-        geom_pass::add_geom_pass(self, vertex_buffer)?;
+        let global_constant_buffer = self.render_context.create_buffer(&constant_create_info)?;
+        let per_draw_constant_buffer = self.render_context.create_buffer(&constant_create_info)?;
+        
+        geom_pass::add_geom_pass(self, global_constant_buffer, per_draw_constant_buffer)?;
         Ok(())
     }
 
@@ -273,14 +283,14 @@ impl Renderer {
         self.vsync = vsync;
     }
 
-    pub fn render(self: &mut Renderer) {
+    pub fn render(self: &mut Renderer, models: &[Model]) {
         let context = self.render_context.as_mut();
         let command = context.get_current_frame().command_id;
 
         context.begin_command(command);
 
         self.render_passes.iter().for_each(|pass| {
-            (pass.pass)(context, pass);
+            (pass.pass)(context, pass, models);
         });
 
         context.copy_to_swapchain(command, self.render_target);
@@ -291,5 +301,3 @@ impl Renderer {
         context.present(self.vsync);
     }
 }
-
-
